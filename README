@@ -1,0 +1,286 @@
+STOCKFLOW 1.0 - GESTION DES MATERIAUX ET SIMULATION DES RUPTURES
+
+But : saisir les stocks, consommations et livraisons de ciment, sable, gravier,
+bois et acier ; simuler les dates de première demande non satisfaite ; comparer
+des solutions et visualiser l'utilisation des matériaux.
+
+Le dossier livré contient uniquement app.py, requirement.text et README.
+Le code, les fonctions et le CSS sont dans app.py. Les données, tests, captures
+et archives se trouvent hors du dossier livré. Les applications précédentes
+restent indépendantes.
+
+INSTALLER ET LANCER SOUS WINDOWS
+
+Ouvrir stockflow dans VS Code, puis Terminal > Nouveau terminal :
+
+    cd "C:\Users\FIFEN HOUSSEIN\Desktop\APP\stockflow"
+    python -m pip install -r requirement.text
+    python -m streamlit run app.py
+
+Pour éviter la création de __pycache__ dans le dossier livré :
+    python -B -m streamlit run app.py
+
+Sélectionner le bon interpréteur Python dans VS Code si nécessaire.
+Version utilisée lors des vérifications : Python 3.14, Streamlit 1.65.
+Le terminal affiche l'URL locale ; dans cet espace, le lancement préparé utilise
+http://localhost:8539/. Le port standard d'un lancement simple est souvent 8501.
+Une URL localhost fonctionne sur la machine qui lance le serveur.
+
+Bibliothèques :
+- streamlit : formulaires, navigation, tableaux et téléchargements ;
+- numpy : lois triangulaires, retards, trajectoires, quantiles et fréquences ;
+- pandas : tables et exports CSV ;
+- plotly : courbes interactives et diagrammes ;
+- openpyxl : classeur Excel ;
+- reportlab : rapport PDF avec polices intégrées.
+sqlite3, json, pathlib, datetime et math sont inclus dans Python.
+
+PREMIERE PRISE EN MAIN
+
+1. Cliquer Charger l'exemple fictif dans le menu.
+2. Dans Stocks et livraisons, lire ou modifier les cinq matériaux.
+3. Enregistrer les valeurs modifiées.
+4. Cliquer Lancer les simulations dans Vue d'ensemble ou Durées avant rupture.
+5. Examiner les délais probables, les stocks et l'utilisation quotidienne.
+6. Tester une amélioration dans Comparer une solution.
+7. Télécharger les résultats et sauvegarder les paramètres dans Guide et exports.
+
+Exemple fictif :
+            Unité   Stock   Demande/jour   Quantité/livraison   Délai
+Ciment      sacs    120     12             90                  7 j
+Sable       m³      30      2,5            20                  6 j
+Gravier     m³      40      3              25                  8 j
+Bois        m³      12      0,6            8                   10 j
+Acier       kg      1800    100            1200                9 j
+Horizon initial : 30 jours ; 2 000 simulations ; graine 42.
+Variation de consommation : ±30 %. Retard supplémentaire : 0 à 2 jours.
+Une seule livraison prévue initialement pour chaque matériau.
+
+Ces nombres sont des données pédagogiques, pas des moyennes locales observées.
+Le bouton de chargement réinitialise l'exemple. Mes données reste un espace
+distinct, avec des quantités nulles initiales pour ne pas inventer le chantier.
+Changer d'espace retire les résultats précédents ; relancer pour l'espace choisi.
+
+SAISIES ET UNITES
+
+Chaque matériau dispose de son formulaire, dans un panneau dépliable.
+- Stock actuel : réserve disponible à J0.
+- Consommation moyenne : demande par jour calendaire.
+- Quantité par livraison : quantité identique à chaque réception planifiée.
+  La valeur 0 signifie qu'aucune livraison n'est programmée.
+- Délai de première livraison : jour nominal D de réception, entre 1 et 90.
+- Retard supplémentaire maximum : entier entre 0 et 30 jours.
+- Répéter les livraisons : sinon il n'y a qu'une réception attendue.
+- Intervalle de livraison : cadence entre les dates prévues, distincte du délai D.
+- Variation de consommation : demi-largeur relative, de 0 à 100 %.
+- Inclure ce matériau : exclut ou inclut le matériau dans les calculs.
+
+Ciment en sacs (poids du sac non imposé), sable/gravier/bois en m³, acier en kg.
+Les sacs et autres quantités utilisent une approximation continue : des valeurs
+fractionnaires sont possibles. Aucune conversion de densité ni addition entre
+des unités différentes n'est faite. Les cinq graphiques sont sélectionnables
+matériau par matériau.
+
+Période : 7 à 180 jours. Scénarios : 500, 1 000, 2 000, 5 000 ou 10 000.
+La graine rend les mêmes paramètres reproductibles dans le même environnement.
+J1 est la première date de consommation ; J0 est l'état initial.
+Tous les jours calendaires sont consommés, sans distinction de week-end.
+
+MODELE JOURNALIER : CONVENTION A RETENIR
+
+Au jour j, la consommation est demandée AVANT la réception :
+    servi_j = min(stock_disponible_j, demande_j)
+    non_servi_j = demande_j - servi_j
+    stock_fin_j = max(stock_disponible_j - demande_j, 0) + reception_j
+
+Une livraison à J7 devient disponible en fin de J7, pour la consommation de J8.
+Une rupture peut donc survenir pendant J7 même si le stock de fin de jour est
+positif grâce à une réception. La courbe de première rupture en garde la trace.
+Une rupture désigne une demande partiellement ou totalement non satisfaite.
+Finir une journée exactement à zéro ne constitue pas encore une rupture :
+la rupture arrive lors de la prochaine demande positive impossible à servir.
+Les demandes non servies sont perdues dans le modèle, sans report le lendemain.
+Les stocks physiques restent non négatifs.
+
+PROBABILITES
+
+Consommation quotidienne : loi triangulaire symétrique.
+    minimum = moyenne x (1 - variation/100)
+    mode    = moyenne
+    maximum = moyenne x (1 + variation/100)
+La moyenne de cette loi est la valeur saisie. Avec variation=0 ou moyenne=0,
+la demande est constante. Les jours et les matériaux sont supposés indépendants.
+
+Retard : entier uniforme entre 0 et le maximum, bornes incluses.
+Une livraison unique arrive à D + retard.
+Livraisons répétées : dates nominales D, D+intervalle, D+2xintervalle, etc.
+Un retard indépendant s'ajoute à chaque date nominale. Les livraisons ne sont
+pas automatiquement déclenchées par un niveau de stock. Une réception retardée
+ne décale pas les dates nominales suivantes ; plusieurs arrivées peuvent coïncider.
+
+Les quantités livrées sont fixes ; pertes, annulations, changements de production,
+priorités entre tâches et dépendances communes (météo, panne fournisseur) ne
+sont pas modélisés. Ces hypothèses sont à adapter avant une décision réelle.
+
+DELAIS PROBABLES ET SCENARIOS SANS RUPTURE
+
+Le calcul retient le premier jour de rupture dans chaque scénario.
+Les scénarios sans rupture dans l'horizon sont conservés comme censurés après H.
+Dans le code uniquement, H+1 sert de marqueur de censure ; il n'est jamais
+présenté comme une date future connue et l'export des scénarios laisse la date vide.
+Les quantiles q10/q50/q90 sont calculés sur TOUS les scénarios, par statistique
+d'ordre (inverted_cdf), pas uniquement sur les scénarios avec rupture.
+
+Exemple : médiane J18 signifie au moins la moitié des scénarios en rupture au
+plus tard J18. Médiane >30 j signifie que moins de la moitié ont rompu avant ou
+à J30 ; le logiciel ne connaît pas leur jour de rupture après J30.
+La probabilité P(T<=j) est cumulative et ne diminue pas après une livraison.
+L'histogramme des jours ne contient que les ruptures observées ; le nombre de
+scénarios censurés est affiché à côté.
+
+Les fréquences sont accompagnées d'un intervalle de Wilson à 95 %, qui quantifie
+la précision Monte-Carlo, pas la pertinence des hypothèses. Un résultat 0/2000
+n'est donc pas une garantie d'absence de risque réel.
+La probabilité globale mesure au moins un matériau en rupture dans la période.
+Les unités physiques ne sont jamais additionnées pour calculer ce résultat.
+
+GRAPHIQUES D'UTILISATION
+
+- Stock de fin de jour : médiane et bande des quantiles 10-90 % ; cette bande
+  décrit les distributions ponctuelles, sans garantir une trajectoire entière.
+- Ligne pointillée : bilan à consommation constante et sans retard.
+- Cinq trajectoires individuelles peuvent être affichées dans l'analyse.
+- Utilisation quotidienne : demande totale, quantité servie et demande non servie.
+- Courbes cumulées : demande cumulée et utilisation réellement servie par le modèle.
+Ces résultats sont SIMULES, pas des historiques de sorties relevées sur chantier.
+
+PROTECTION DU DELAI D'UNE NOUVELLE COMMANDE
+
+Le repère q95 est le quantile 95 % de la demande cumulée pendant D+retard jours,
+selon la même convention de réception en fin de jour.
+Ce calcul peut dépasser l'horizon graphique si le délai est plus long.
+Il ignore les réceptions déjà prévues et les coûts. Il ne donne pas une quantité
+optimale à commander ni un niveau garantissant le chantier entier.
+Avec demande fixe 10/j et délai fixe 7 j, ce repère vaut exactement 70 unités.
+
+COMPARER UNE SOLUTION
+
+Tester un stock supplémentaire, un délai plus court, moins de retard, une autre
+quantité livrée ou une fréquence de livraison différente.
+Le scénario de départ reste enregistré tel quel ; l'alternative est temporaire.
+Les deux scénarios utilisent les mêmes tirages de demande (flux de nombres
+aléatoires séparé des livraisons). Cela permet de comparer les effets des stocks
+et des réceptions sans modifier les demandes simulées.
+Le tableau et la courbe montrent la probabilité, le délai médian et les quantités
+non servies. Les hypothèses du dernier calcul sont affichées. Resoumettre le
+formulaire après une modification.
+
+TESTS EXACTS A REALISER
+
+Prendre un seul matériau, horizon 20 jours, variation=0 et retard=0.
+Stock 100 ; demande 10/j :
+1. Livraison 0 -> première rupture J11, probabilité 100 % à J20.
+2. Livraison 50 à J5, une seule fois -> première rupture J16.
+3. Livraison 100 à J10 -> aucune rupture jusqu'à J20 inclus ; quantiles >20 j.
+4. Livraison 100 à J11 -> rupture J11, même si la livraison regarnit le stock
+   le soir. Demande non servie de J11 = 10 unités.
+5. Livraison 50 à J5 puis tous les 5 jours -> aucune rupture jusqu'à J20.
+6. Stock 0 et demande 0 -> aucune demande et aucune rupture.
+
+Pour comparer : partir du cas 1 et ajouter temporairement 100 unités de stock.
+La solution a 200 unités, aucune livraison et couvre exactement 20 jours :
+aucune rupture avant ou à J20, contre J11 dans la situation de départ.
+
+EXPORTS ET SAUVEGARDE
+
+Guide et exports :
+- Synthèse CSV : unités, fréquence, intervalle de précision, quantiles et q95.
+- Classeur Excel : synthèse et un onglet quotidien par matériau actif.
+- Rapport PDF : synthèse, paramètres effectivement simulés et hypothèses.
+- Scénarios CSV : jour observé de rupture ou date vide si censuré à l'horizon.
+- Paramètres JSON : configuration complète, sans les tableaux de tirages.
+Utilisation des matériaux propose aussi un export journalier du matériau choisi.
+
+Import JSON (1 Mo maximum) : remplacement de la configuration de l'espace actif,
+avec confirmation explicite ; aucune importation silencieuse. Les configurations
+fictives sont refusées dans Mes données. Après import, relancer les simulations.
+Les résultats sont invalidés après modification d'un paramètre ou changement
+d'espace, pour éviter d'afficher un calcul fondé sur d'anciennes valeurs.
+
+STOCKAGE
+
+Windows : Documents\Codex\data\stockflow\stockflow.sqlite3 dans le profil actif.
+Linux : ~/.local/share/stockflow/stockflow.sqlite3.
+Variable d'environnement STOCKFLOW_DATA_DIR pour un autre dossier, obligatoirement
+extérieur au dossier de l'application.
+Une configuration par serveur ; pas de compte utilisateur ni de séparation
+entre visiteurs du même serveur. SQLite sauvegarde les paramètres, pas les
+simulations. L'espace fictif et les résultats restent dans la session.
+Sur un hébergement à disque temporaire, conserver le JSON et l'importer si besoin.
+
+GITHUB ET STREAMLIT COMMUNITY CLOUD
+
+Le dossier livré conserve requirement.text comme demandé.
+Community Cloud attend le nom standard requirements.txt pour les dépendances pip.
+Préparer un dossier distinct de déploiement et y copier :
+    app.py
+    README
+    requirement.text sous le nom requirements.txt
+
+Créer un dépôt GitHub vide nommé stockflow dans le compte voulu, puis ouvrir
+le terminal dans le dossier de déploiement :
+    git init
+    git add app.py README requirements.txt
+    git commit -m "Premiere version de StockFlow"
+    git branch -M main
+    git remote add origin https://github.com/gc7258728-cmyk/stockflow.git
+    git remote -v
+    git push -u origin main
+L'URL est un exemple de dépôt à créer ; aucun dépôt ni déploiement n'a été créé
+automatiquement. Si origin existe déjà, vérifier sa valeur avant de la modifier.
+Sur Community Cloud : Create app, dépôt choisi, branche main, fichier app.py.
+Dans Paste URL, utiliser l'URL du fichier Python (après publication du dépôt) :
+    https://github.com/gc7258728-cmyk/stockflow/blob/main/app.py
+Sélectionner une version de Python compatible ; lire les journaux d'installation.
+L'hébergement fournira ensuite l'URL publique. Le disque local du Cloud n'est
+pas une base de données en ligne durable ; conserver les exports JSON.
+
+Après modification : recopier les fichiers changés dans la copie de déploiement,
+puis depuis cette copie :
+    git status
+    git add app.py README requirements.txt
+    git commit -m "Mise a jour de StockFlow"
+    git push
+
+REFERENCES TECHNIQUES
+
+Loi triangulaire : documentation officielle NumPy
+https://numpy.org/doc/stable/reference/random/generated/numpy.random.Generator.triangular.html
+Déploiement : documentation officielle Streamlit
+https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies
+
+VERIFICATIONS DE LIVRAISON
+
+Vérifications effectuées le 28 octobre 2026 :
+- Installation des dépendances : bibliothèques présentes dans Python 3.14.
+- 12 tests automatisés réussis : jours exacts de rupture, livraison en fin de
+  journée, censure des quantiles, bilan des quantités, livraisons périodiques,
+  retard, délai supérieur à l'horizon, protection q95, intervalle de fréquence,
+  valeurs invalides, comparaison avec demandes identiques, PDF/Excel/CSV,
+  stockage et isolation entre exemple fictif et données réelles via AppTest.
+- Parcours complet dans Edge en 1 440 et 320 pixels : formulaires de période
+  et de matériau, cas exact J11, graphiques, comparaison ramenant le risque de
+  100 % à 0 % sur 20 jours, téléchargements CSV/Excel/PDF/JSON, import confirmé,
+  invalidation des anciens résultats et retour aux paramètres réels intacts.
+- Contrôles visuels des six pages sur ordinateur, tablette et mobile simulés ;
+  contrôle automatique des débordements, boutons et titres d'axes des graphiques.
+- Exports réouverts : 2 500 scénarios pour le test de 500 tirages x 5 matériaux,
+  classeur à six feuilles, paramètres restaurables, PDF lisible et sans texte
+  hors des marges. Utilisation servie = 100 et non servie = 100 dans le cas exact.
+- Essai de charge à 10 000 simulations, 180 jours et cinq matériaux terminé.
+- Registre réel resté à sa révision initiale avec toutes les quantités nulles
+  après les essais ; toutes les modifications ont eu lieu dans l'espace fictif.
+
+Limites : tests mobiles sur dimensions de navigateur, pas sur téléphones réels ;
+pas de validation Safari/Firefox ni de déploiement Cloud effectué. Les paramètres
+statistiques ne sont pas ajustés sur un historique réel de consommations.
